@@ -26,6 +26,8 @@ CPU만 있으면 `./run.sh --cpu --model base`. 옵션은 `./run.sh --help`.
 | Batch 실시간 | `GET /v1/transcriptions/{id}/events` | SSE로 진행률/세그먼트 리플레이 + live |
 | Streaming | `WS /v1/stream` | `partial` → `final` → `done` 즉시 수신 |
 
+> 작업을 이어받을 때는 [HANDOFF.md](HANDOFF.md)를 먼저 읽는다. 현재 코드 상태·확정 결정·알려진 함정·다음 작업이 정리되어 있다.
+
 ## 계획 문서
 
 [plan/README.md](plan/README.md)에서 시작한다.
