@@ -51,7 +51,8 @@
 | 서버 | `/healthz`, `/v1/info` 정상, `cloudflared` 터널 공개 URL 생성 |
 | 배치 잡 생성 | `POST /v1/transcriptions` → 202, job 생성 |
 | 배치 전사 | **실패 2건** — ① PyAV 19 (§4.1) ② CUDA 12용 cuBLAS 없음 (§4.7). 둘 다 수정, Colab 재검증은 미실시 |
-| 스트리밍 | **미검증** (셀 7 미실행) |
+| 스트리밍 | **미검증** (테스트 2, 셀 9 미실행) |
+| 동시 요청 | **미검증** (테스트 3, 셀 11 — 배치 2건 + 스트리밍 1건) |
 
 ### 3.2 자체 호스팅
 
@@ -155,7 +156,8 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 | 순위 | 작업 | 이유 / 완료 조건 |
 |---|---|---|
 | **P0** | Colab에서 배치 1건 완주 확인 (셀 3 → 5 → 6) | `completed` + `TEXT:` 출력. 이게 이번 수정의 유일한 미확인 항목 |
-| **P0** | Colab에서 스트리밍 1세션 완주 확인 (셀 7) | `partial` → `final` → `done` 순서 출력. 첫 검증 |
+| **P0** | Colab에서 스트리밍 1세션 완주 확인 (테스트 2) | `partial` → `final` → `done` 순서 출력. 첫 검증 |
+| **P0** | Colab에서 동시 요청 확인 (테스트 3) | 배치 2건 `completed` + 스트림 `final`/`done`. 추론은 직렬화되므로 “격리·성공”만 본다 |
 | ~~P1~~ | ~~`/readyz` ffmpeg 검사 · `dependency_missing` 분리 · 409 `job_not_ready`~~ | ✅ 완료 (§4.6) |
 | P2 | 한국어 오디오로 정확도/속도 확인 | 지금까지 데모는 영어 `jfk.wav`뿐. `small` 유지 여부 판단 근거 |
 | P2 | partial 비용 벤치 (1초 vs 15초 vs 30초) | `plan/04` §5.1의 15초 상한 vs §4.1의 5~10분 청크 모순을 실측으로 해소 |
@@ -198,9 +200,10 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 | 3 | ffmpeg·의존성 설치, **av 19면 자동 다운그레이드** |
 | 4 | 모델 프리로드(`python -m app.preload`) |
 | 5 | 서버 기동 + cloudflared 터널 (**이전 프로세스 정리 포함**) |
-| 6 | 배치 데모 (상태·error·TEXT·SRT 출력) |
-| 7 | 스트리밍 데모 (WS, 100ms 청크) |
-| 8 | 서버 로그 tail |
+| 6–7 | **테스트 1**: 배치 (설명 마크다운 + 상태·error·TEXT·SRT 출력) |
+| 8–9 | **테스트 2**: 스트리밍 (WS, 100ms 청크, `partial`→`final`→`done`) |
+| 10–11 | **테스트 3**: 동시 요청 (배치 2건 + 스트리밍 1건, 10분 상한) |
+| 12 | 서버 로그 tail |
 
 ### 검증 명령
 
@@ -209,14 +212,17 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 python3 - <<'PY'
 import ast, json
 nb = json.load(open('notebooks/colab_stt_api.ipynb', encoding='utf-8'))
-assert len(nb['cells']) == 10
-for i, c in enumerate(nb['cells']):
+assert len(nb['cells']) == 14
+for c in nb['cells']:
     if c['cell_type'] != 'code':
         continue
-    lines = [l[:len(l)-len(l.lstrip())] + 'pass  # ' + l.lstrip()[1:]
-             if l.lstrip().startswith('!') else l
-             for l in ''.join(c['source']).splitlines()]
-    ast.parse('\n'.join(lines))
+    assert c['outputs'] == [] and c['execution_count'] is None  # 템플릿 유지
+    src = '\n'.join(
+        (l[:len(l) - len(l.lstrip())] + 'pass  # ' + l.lstrip()[1:]) if l.lstrip().startswith('!') else l
+        for l in ''.join(c['source']).splitlines()
+    )
+    # 테스트 2·3은 최상위 await를 쓴다(Colab 허용). ast.parse로는 실패한다.
+    compile(src, '<cell>', 'exec', ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
 print('OK')
 PY
 ```
@@ -237,8 +243,9 @@ app/
   config.py      환경 변수 설정(STT_*), 기본 small / auto device / 상대 data_dir
   preload.py     모델 다운로드·로드 검증 (노트북 셀 4, run.sh --preload)
   formats.py     txt / srt / vtt 직렬화
-notebooks/colab_stt_api.ipynb   10셀, Colab 실행 경로 (출력은 커밋하지 않는 템플릿으로 유지한다.
-                                고친 코드와 옛 출력이 섞여 오해를 만들지 않게 하기 위함)
+notebooks/colab_stt_api.ipynb   14셀(코드 9 + 설명 5), Colab 실행 경로. 테스트 1~3은 각각
+                                앞에 무엇을 왜 확인하는지 마크다운이 붙어 있다. 출력은 커밋하지 않는
+                                템플릿으로 유지한다(고친 코드와 옛 출력이 섞여 오해를 만들지 않게)
 run.sh                          자체 호스팅 러너
 requirements.txt                ⚠ av>=11,<19 고정 이유 주석 참고
 plan/                           계획 문서 9개 + review/ 2개
