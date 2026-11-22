@@ -105,18 +105,31 @@ av 19.0.2: TypeError: open() got an unexpected keyword argument 'metadata_errors
 - 셀 4 힌트 문구가 `\n[힌트]`를 문자 그대로 출력하던 이스케이프 오타
 - 셀 6이 `wav` 파일 크기를 검증(1KB 미만이면 재다운로드)
 
+### 4.6 [해결] 오류 코드 정리 — 의존성/입력/미완료 구분
+
+이전에는 ffmpeg 미설치(서버 책임)와 손상 파일(사용자 책임)이 모두 422 `invalid_audio`였고, 결과 미완료 409가 `invalid_request`였다. 지금은:
+
+- `app/audio.py`: `ensure_ffmpeg()`가 `DependencyError("ffmpeg", ...)`를 던진다. `AudioError`는 순수 디코딩/포맷 오류만 남는다.
+- `app/jobs.py`: `DependencyError` → `dependency_missing`(retryable), `AudioError` → `invalid_audio`. `job.error`에 `retryable` 필드가 추가됐다.
+- `app/main.py`: ffmpeg가 없으면 `POST /v1/transcriptions`가 잡을 만들지 않고 `503 dependency_missing`으로 즉시 거절한다. `/readyz`는 `checks.ffmpeg`를 포함하고, 없으면 `503` + `status: degraded`를 반환한다. `/healthz`는 그대로 liveness(200).
+- 결과 미완료 응답 코드: `invalid_request` → `job_not_ready` (409, `Retry-After: 2`).
+- `plan/03-api-spec.md` 오류 코드 표에 `job_not_ready`, `dependency_missing` 추가.
+
+**기동 자체를 거부하지는 않는다.** 스트리밍은 PCM을 직접 받아 ffmpeg를 쓰지 않으므로, ffmpeg가 없는 환경에서도 스트리밍 전용으로는 정상 동작해야 하기 때문이다. 배치 경로만 503으로 막는다.
+
+검증(로컬, fastapi TestClient): ffmpeg 있는 PATH → `/readyz` 200 · 없는 PATH → 503 `dependency_missing` + 배치 생성 503 · 미완료 결과 → 409 `job_not_ready` + `Retry-After: 2` · `DependencyError` 발생 잡 → `failed` + `dependency_missing`(retryable).
+
 ---
 
 ## 5. 커밋 상태 — **push는 사용자가 직접 한다**
 
-```
-eb7359d  PyAV 19와 faster-whisper 1.2.x 충돌로 배치 전사가 실패하던 문제 수정   ← 로컬만
-3efdf5a  노트북: 셀 재실행 시 중첩 chdir 방지, 배치 실패 원인 노출             ← 로컬만
-1cf05b1  Colab 노트북: 남아 있는 옛 클론을 자동 복구하도록 셀 2 보강           ← 로컬만
-0e3c4ba  STT API 프로토타입 추가 (원격 main)                                   ← origin
+`origin/main`에는 초기 프로토타입 커밋(`0e3c4ba`)만 있다. 그 위로 로컬 커밋이 여러 개 쌓여 있으니, 정확한 앞선 개수는 아래로 확인한다.
+
+```bash
+git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오른쪽=로컬만
 ```
 
-로컬이 `origin/main`보다 3커밋 앞선다. **푸시 권한/자격증명이 없어 대신 push하지 않았다.** 커밋 footer는 `🤖 Generated with Codebuff` + `Co-Authored-By: Codebuff <noreply@codebuff.com>` 형식을 유지할 것. git 작성자는 저장소 로컬 설정만 사용했다(전역 미변경).
+**푸시 권한/자격증명이 없어 대신 push하지 않았다.** 커밋 footer는 `🤖 Generated with Codebuff` + `Co-Authored-By: Codebuff <noreply@codebuff.com>` 형식을 유지할 것. git 작성자는 저장소 로컬 설정만 사용했다(전역 미변경).
 
 ---
 
@@ -126,9 +139,7 @@ eb7359d  PyAV 19와 faster-whisper 1.2.x 충돌로 배치 전사가 실패하던
 |---|---|---|
 | **P0** | Colab에서 배치 1건 완주 확인 (셀 3 → 5 → 6) | `completed` + `TEXT:` 출력. 이게 이번 수정의 유일한 미확인 항목 |
 | **P0** | Colab에서 스트리밍 1세션 완주 확인 (셀 7) | `partial` → `final` → `done` 순서 출력. 첫 검증 |
-| P1 | `/readyz`에 ffmpeg 검사 추가 | 현재 `run.sh`는 경고만 하고, 실제 실패는 첫 배치에서야 드러남. ffmpeg 없으면 기동 거부가 맞다 |
-| P1 | `invalid_audio` 코드 분리 | `app/jobs.py`가 `AudioError`를 전부 422 `invalid_audio`로 매핑한다. ffmpeg 미설치(서버 책임, 503 `dependency_missing`)와 손상 파일(사용자 책임, 422)이 구분 안 됨 |
-| P1 | 409 코드 `job_not_ready` 분리 | `app/main.py`의 결과 미완료 응답이 `invalid_request`를 반환 중 |
+| ~~P1~~ | ~~`/readyz` ffmpeg 검사 · `dependency_missing` 분리 · 409 `job_not_ready`~~ | ✅ 완료 (§4.6) |
 | P2 | 한국어 오디오로 정확도/속도 확인 | 지금까지 데모는 영어 `jfk.wav`뿐. `small` 유지 여부 판단 근거 |
 | P2 | partial 비용 벤치 (1초 vs 15초 vs 30초) | `plan/04` §5.1의 15초 상한 vs §4.1의 5~10분 청크 모순을 실측으로 해소 |
 | P3 | 계획 문서 정합성 수정 | `plan/04` §4.1 배치 청크 5~10분 ↔ §5.1 `Transcriber` 15초 상한 / `plan/05` `ev:` TTL 1일 ↔ final 30일 |
@@ -216,7 +227,7 @@ plan/                           계획 문서 9개 + review/ 2개
 HANDOFF.md                      이 문서
 ```
 
-배치 파이프라인 요점: `_run()`이 `preprocessing`에서 `to_wav16k`만 수행하고, `AudioError`면 `invalid_audio`, 그 외 예외면 `internal`로 `job.error`에 `{code, message}`를 기록한다. 결과 조회는 `status != completed`면 409 + 오류 envelope.
+배치 파이프라인 요점: `_run()`이 `preprocessing`에서 `to_wav16k`만 수행하고, `DependencyError`(ffmpeg 없음)면 `dependency_missing`, `AudioError`(손상/포맷)면 `invalid_audio`, 그 외 예외면 `internal`로 `job.error`에 `{code, message, retryable}`을 기록한다. 결과 조회는 `status != completed`면 409 `job_not_ready` + 오류 envelope. 배치 생성은 ffmpeg가 없으면 시작 전에 503으로 거절하고, `/readyz`도 같은 검사를 `checks.ffmpeg`로 노출한다.
 
 ---
 

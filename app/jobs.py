@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from .audio import AudioError, to_wav16k
+from .audio import AudioError, DependencyError, to_wav16k
 from .config import settings
 from .engine import WhisperEngine
 
@@ -119,8 +119,8 @@ class BatchRunner:
     def start(self, job: Job, source: Path, word_timestamps: bool) -> None:
         job.task = asyncio.create_task(self._run(job, source, word_timestamps))
 
-    def _fail(self, job: Job, code: str, message: str) -> None:
-        job.error = {"code": code, "message": message[:500]}
+    def _fail(self, job: Job, code: str, message: str, retryable: bool = False) -> None:
+        job.error = {"code": code, "message": message[:500], "retryable": retryable}
         job.status = "failed"
         job.finished_at = time.time()
 
@@ -188,6 +188,10 @@ class BatchRunner:
             except Canceled:
                 job.status = "canceled"
                 job.finished_at = time.time()
+                self.publish(job, "status")
+            except DependencyError as exc:
+                # 서버 책임(ffmpeg 미설치 등). 사용자 입력 문제와 분리해 503 계열로 알린다.
+                self._fail(job, "dependency_missing", str(exc), retryable=True)
                 self.publish(job, "status")
             except AudioError as exc:
                 self._fail(job, "invalid_audio", str(exc))

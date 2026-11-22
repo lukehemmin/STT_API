@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from . import formats
+from .audio import DependencyError, ensure_ffmpeg
 from .config import settings
 from .engine import engine
 from .jobs import TERMINAL_STATUSES, BatchRunner, Job, JobStore
@@ -82,6 +83,14 @@ def _iso(ts: Optional[float]) -> Optional[str]:
 
 def _error(code: str, message: str, retryable: bool = False) -> dict:
     return {"error": {"code": code, "message": message, "retryable": retryable}}
+
+
+def _ffmpeg_check() -> dict:
+    """배치 경로의 필수 의존성(ffmpeg) 가용성. 스트리밍(PCM)은 ffmpeg 없이도 동작한다."""
+    try:
+        return {"ok": True, "path": ensure_ffmpeg()}
+    except DependencyError as exc:
+        return {"ok": False, "dependency": exc.dependency, "message": str(exc)}
 
 
 def require_auth(request: Request) -> None:
@@ -165,8 +174,18 @@ async def healthz() -> dict:
 
 
 @app.get("/readyz")
-async def readyz() -> dict:
-    return {"status": "ok", "engine": engine.info(), "active_streams": ACTIVE_STREAMS}
+async def readyz():
+    ffmpeg = _ffmpeg_check()
+    checks = {"ffmpeg": ffmpeg, "engine": engine.info()}
+    if not ffmpeg["ok"]:
+        payload = {
+            "status": "degraded",
+            "checks": checks,
+            "active_streams": ACTIVE_STREAMS,
+            **_error("dependency_missing", ffmpeg["message"], retryable=True),
+        }
+        return JSONResponse(status_code=503, content=payload)
+    return {"status": "ok", "checks": checks, "active_streams": ACTIVE_STREAMS}
 
 
 @app.get("/v1/info")
@@ -197,6 +216,13 @@ async def create_transcription(
     timestamps: str = Form("segment"),
     _: None = Depends(require_auth),
 ):
+    ffmpeg = _ffmpeg_check()
+    if not ffmpeg["ok"]:
+        # 잡을 받아놓고 실패시키지 않고 즉시 거절한다(재시도 무의미, 서버 의존성 문제).
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "dependency_missing", "message": ffmpeg["message"], "retryable": True},
+        )
     if timestamps not in {"segment", "word"}:
         raise HTTPException(
             status_code=400,
@@ -261,7 +287,7 @@ async def get_result(
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "invalid_request",
+                "code": "job_not_ready",
                 "message": f"아직 결과가 준비되지 않았습니다(status={job.status}).",
                 "retryable": job.status not in TERMINAL_STATUSES,
             },

@@ -28,10 +28,12 @@ Base URL: `https://api.example.com/v1` · 인증: `Authorization: Bearer <API_KE
 | `unauthorized` | 401 | 키 없음/무효 |
 | `forbidden` | 403 | 타 테넌트 리소스 접근 |
 | `job_not_found` | 404 | 잡/결과 없음 |
+| `job_not_ready` | 409 | 결과 미완료(폴링/`Retry-After`) |
 | `quota_exceeded` | 429 | 동시 세션/잡/사용량 초과 |
 | `rate_limited` | 429 | 요청 빈도 초과 (`Retry-After`) |
 | `session_limit_reached` | 503 | 스트리밍 전역 용량 초과 (재시도 권장) |
 | `model_unavailable` | 503 | 엔진 일시 불가 |
+| `dependency_missing` | 503 | 서버 의존성(ffmpeg 등) 없음 |
 | `canceled` | 409 | 취소된 잡에 대한 조작 |
 | `internal` | 500 | 서버 오류 |
 
@@ -155,7 +157,7 @@ callback_url=https://client.example.com/hooks/stt
 }
 ```
 
-미완료 시 `409` + `Retry-After`. `format=srt` 등은 `text/plain` / `text/vtt`로 반환.
+미완료 시 `409 job_not_ready` + `Retry-After`. `format=srt` 등은 `text/plain` / `text/vtt`로 반환.
 
 ### 1.4 취소
 

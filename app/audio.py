@@ -13,15 +13,27 @@ BYTES_PER_SAMPLE = 2  # s16le
 
 
 class AudioError(Exception):
-    """디코딩/포맷 오류. API에서는 invalid_audio 또는 unsupported_format으로 매핑."""
+    """디코딩/포맷 오류. API에서는 invalid_audio(422)로 매핑."""
+
+
+class DependencyError(Exception):
+    """서버 쪽 의존성(ffmpeg 등)이 없어 처리할 수 없음. API에서는 dependency_missing(503).
+
+    사용자 입력 문제(AudioError)와 구분한다. 재시도로 해결되지 않지만 서버 책임이다.
+    """
+
+    def __init__(self, dependency: str, message: str) -> None:
+        super().__init__(message)
+        self.dependency = dependency
 
 
 def ensure_ffmpeg() -> str:
     path = shutil.which("ffmpeg")
     if not path:
-        raise AudioError(
+        raise DependencyError(
+            "ffmpeg",
             "ffmpeg를 찾을 수 없습니다. 자체 호스팅은 `sudo apt-get install -y ffmpeg`, "
-            "Colab은 노트북의 설치 셀을 먼저 실행하세요."
+            "Colab은 노트북의 설치 셀을 먼저 실행하세요.",
         )
     return path
 
