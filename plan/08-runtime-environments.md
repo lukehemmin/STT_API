@@ -103,6 +103,7 @@ chmod +x run.sh
 | `STT_COMPUTE_TYPE` | `auto` | `float16`(GPU), `int8`(CPU) 자동 |
 | `STT_MODEL_DIR` | HF 캐시 | 모델 다운로드 경로 |
 | `STT_LANGUAGE` | 자동 | 기본 언어 고정 (`ko`, `en` 등) |
+| `STT_MULTILINGUAL` | 1 | 자동 감지일 때 30초 창마다 언어 재감지(혼합 언어 대응) |
 | `STT_API_KEY` | 없음 | 설정 시 Bearer/`api_key` 인증 필수 |
 | `STT_DATA_DIR` | `data` | 업로드/작업 파일 경로 |
 | `STT_MAX_UPLOAD_MB` | 2048 | 업로드 상한 |

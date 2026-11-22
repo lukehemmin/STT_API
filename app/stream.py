@@ -43,6 +43,8 @@ class StreamSessionState:
     id: str
     status: str = "active"
     language: Optional[str] = None
+    detected_language: Optional[str] = None
+    language_probability: Optional[float] = None
     model: str = ""
     started_at: float = field(default_factory=time.time)
     ended_at: Optional[float] = None
@@ -108,8 +110,13 @@ class StreamingSession:
                     "start_ms": event["start_ms"],
                     "end_ms": event["end_ms"],
                     "confidence": event.get("confidence"),
+                    "language": event.get("language"),
                 }
             )
+            # 확정 세그먼트 기준으로 세션 언어를 갱신한다(partial의 추정은 버린다).
+            if event.get("language"):
+                self.state.detected_language = event["language"]
+                self.state.language_probability = event.get("language_probability")
         self.state.duration_ms = self._total_ms
         return event
 
@@ -203,6 +210,7 @@ class StreamingSession:
                 "text": result.text,
                 "start_ms": self._segment_start_ms,
                 "end_ms": self._segment_start_ms + self._buffer_ms(),
+                "language": result.language,
             }
         )
 
@@ -243,6 +251,12 @@ class StreamingSession:
                     "start_ms": start,
                     "end_ms": end,
                     "confidence": confidence,
+                    "language": result.language,
+                    "language_probability": (
+                        round(result.language_probability, 3)
+                        if result.language_probability is not None
+                        else None
+                    ),
                 }
             )
             self._segment_index += 1
@@ -276,6 +290,7 @@ class StreamingSession:
                 "type": "done",
                 "duration_ms": self._total_ms,
                 "segments": len(self.state.segments),
+                "language": self.state.detected_language or self.state.language,
             }
         )
         events.append(done)

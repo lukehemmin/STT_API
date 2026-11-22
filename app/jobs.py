@@ -36,6 +36,7 @@ class Job:
     progress: float = 0.0
     language: Optional[str] = None
     detected_language: Optional[str] = None
+    detected_language_probability: Optional[float] = None
     duration_ms: Optional[int] = None
     model: str = ""
     source_name: str = ""
@@ -180,6 +181,7 @@ class BatchRunner:
                 self.publish(job, "status")
                 job.text = transcript.text
                 job.detected_language = transcript.language
+                job.detected_language_probability = transcript.language_probability
                 job.duration_ms = transcript.duration_ms
                 job.progress = 1.0
                 job.status = "completed"

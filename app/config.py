@@ -28,6 +28,7 @@ class Settings:
     compute_type: str
     model_dir: Optional[str]
     language: Optional[str]
+    multilingual: bool
     api_key: Optional[str]
     data_dir: str
     max_upload_mb: int
@@ -47,6 +48,8 @@ def load_settings() -> Settings:
         compute_type=os.getenv("STT_COMPUTE_TYPE", "auto"),
         model_dir=os.getenv("STT_MODEL_DIR") or None,
         language=os.getenv("STT_LANGUAGE") or None,
+        # language 미지정 시 30초 창마다 언어를 다시 감지한다(한국어+영어 혼합 대응).
+        multilingual=_bool("STT_MULTILINGUAL", True),
         api_key=os.getenv("STT_API_KEY") or None,
         data_dir=os.getenv("STT_DATA_DIR", "data"),
         max_upload_mb=_int("STT_MAX_UPLOAD_MB", 2048),

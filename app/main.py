@@ -113,6 +113,7 @@ def job_payload(job: Job) -> dict:
         "progress": round(job.progress, 4),
         "language": job.language,
         "detected_language": job.detected_language,
+        "detected_language_probability": job.detected_language_probability,
         "duration_ms": job.duration_ms,
         "model": job.model,
         "error": job.error,
@@ -212,7 +213,10 @@ async def info() -> dict:
 @app.post("/v1/transcriptions", status_code=202)
 async def create_transcription(
     file: UploadFile = File(...),
-    language: Optional[str] = Form(None),
+    language: Optional[str] = Form(
+        None,
+        description="BCP-47 코드(ko, en 등). 생략하면 자동 감지하며, 30초 창마다 재감지한다.",
+    ),
     timestamps: str = Form("segment"),
     _: None = Depends(require_auth),
 ):
@@ -320,6 +324,7 @@ async def get_result(
         "id": job.id,
         "status": job.status,
         "language": job.detected_language or job.language,
+        "language_probability": job.detected_language_probability,
         "duration_ms": job.duration_ms,
         "text": job.text,
         "segments": segments,
@@ -457,6 +462,8 @@ async def stream(ws: WebSocket):
             "frame_ms": 100,
             "max_duration_ms": MAX_STREAM_MS,
             "model": engine.model_name,
+            "language": session.language,
+            "language_detection": "fixed" if session.language else "auto",
         }
     )
 
@@ -558,6 +565,8 @@ async def get_stream_session(session_id: str, _: None = Depends(require_auth)):
         "id": state.id,
         "status": state.status,
         "language": state.language,
+        "detected_language": state.detected_language,
+        "language_probability": state.language_probability,
         "model": state.model,
         "duration_ms": state.duration_ms,
         "segments": state.segments,

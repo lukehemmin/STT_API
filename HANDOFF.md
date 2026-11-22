@@ -7,7 +7,7 @@
 
 ## 0. 한 줄 상태
 
-**최신 코드(검증 시점 `f8fc8a7`)를 T4에서 돌려 테스트 1(배치)·2(스트리밍)·3(동시 요청)이 모두 통과했고, 프리로드 스모크(`smoke: ok`)까지 확인됐다**(§3.1). 남은 약점은 동시성 증거의 폭이 좁다는 것(§4.9)과 한국어 오디오 미검증(P2)이다.
+**T4 최종 검증은 `f8fc8a7`**(테스트 1~3 + `smoke: ok`, §3.1). 그 뒤로 **언어 자동 감지 보강**(30초 창마다 재감지, 감지 언어/확률 노출), **테스트 3 긴 오디오(약 110초)**, **테스트 4(한국어/영어/혼합)** 을 추가했고 로컬 CPU로 언어 동작을 확인했다(§4.11). **이 변경분은 아직 T4에서 돌리지 않았다** — 다음 작업은 Colab에서 테스트 1~4 재실행이다(§6).
 
 ---
 
@@ -202,6 +202,36 @@ status: failed | error: {'code': 'internal',
 
 ---
 
+### 4.11 [구현] 언어 자동 감지 · 혼합 언어 — 로컬 검증과 한계
+
+이전 상태: 엔진은 이미 `language=None`으로 자동 감지했지만, 노트북·테스트가 전부 `language=en`을 보내 **자동 감지 경로는 한 번도 검증되지 않았고**, 스트리밍 응답에는 감지 언어가 없었다.
+
+변경
+
+- `engine.py`: 언어 미지정 시 `multilingual=True`(faster-whisper 1.2.1이 30초 창마다 언어를 재감지) + `language_detection_segments=4`(최대 4창 투표). 언어를 지정하면 둘 다 끈다.
+- 노출: 배치 `detected_language_probability`, 결과 `language_probability`, 스트리밍 `partial`/`final`의 `language`, `done.language`, `ready.language_detection`, 세션 조회 `detected_language`.
+- 설정: `STT_MULTILINGUAL`(기본 1). `STT_LANGUAGE`를 주면 서버 기본값 고정(요청 `language`가 우선).
+
+로컬 CPU 검증(이 환경, GPU 없음). `small` int8 + gTTS 합성 음성. **Colab T4 검증이 아니다.**
+
+| 입력 | 설정 | 결과 |
+|---|---|---|
+| 한국어 8.4s | auto (tiny) | `ko` p=0.993, 문장 그대로 |
+| 영어 5.2s | auto (tiny) | `en` p=0.989, 문장 그대로 |
+| 혼합 37.5s (한3+영3+한3, 서로 다른 문장) | auto+multilingual (small) | `ko` p=0.887, 한글 95자 + 영문 130자 **전부 보존** |
+| 혼합 40.8s (같은 문장 반복 한3+영3) | multilingual=True (small) | 영어 3회 + 한글 1회(반복 합성 특성) |
+| 같은 파일 | multilingual=False (small) | 영어 소실 + 쉼표 폭주 |
+| 혼합 28.6s (한4+영3) | auto (small) | 16.2s 이후 영어 구간 **통째로 누락** |
+
+해석
+
+- 감지 자체는 안정적(0.88~0.99). 단일 언어 파일은 정확히 나온다.
+- **30초 창 안에서** 언어가 바뀌면 그 창은 우세 언어 하나로 디코딩된다. 뒤쪽 언어 구간이 누락될 수 있다(28.6s 사례).
+- 30초를 넘겨 창이 나뉘면 창별로 언어가 바뀐다(37.5s 혼합 통과). 혼합 대응은 **창 단위**다.
+- 언어를 아는 오디오는 `language=ko` 고정이 가장 정확하다(감지 오탐 없음, 비용도 낮음).
+
+---
+
 ## 5. 커밋·푸시 상태
 
 `origin/main`은 **로컬 `main`과 동기화되어 있다** — 초기 커밋 `0e3c4ba` 위로 쌓여 있던 9개 커밋과 그 뒤의 검증 기록 커밋을 2026-11-22에 push했다(§4.10).
@@ -224,9 +254,10 @@ git ls-remote origin refs/heads/main
 | 순위 | 작업 | 이유 / 완료 조건 |
 |---|---|---|
 | ~~P0~~ | ~~push 후 Colab에서 테스트 1·2·3 재실행~~ | ✅ 완료 — `f8fc8a7`에서 3개 테스트 + `smoke: ok` 확인 (§3.1) |
-| P1 | 동시성 검증을 더 긴 오디오로 강화 | 겹침이 0.3~0.4초뿐이라 증거가 약하다(§4.9) |
+| **P0** | **Colab에서 테스트 1~4 재실행** | 이번에 넣은 언어 감지(§4.11)·긴 오디오 테스트 3·테스트 4는 **T4에서 아직 안 돌렸다**. 셀 2의 `HEAD:`가 이 커밋인지 먼저 확인(§7-2) |
+| ~~P1~~ | ~~동시성 검증을 더 긴 오디오로 강화~~ | ✅ 구현 — 테스트 3이 `long.wav`(약 110초)를 쓰고 최소 겹침 1.0초 미만이면 예외. T4 재실행 대기 |
 | ~~P1~~ | ~~`/readyz` ffmpeg 검사 · `dependency_missing` 분리 · 409 `job_not_ready`~~ | ✅ 완료 (§4.6) |
-| P2 | 한국어 오디오로 정확도/속도 확인 | 지금까지 데모는 영어 `jfk.wav`뿐. `small` 유지 여부 판단 근거 |
+| ~~P2~~ | ~~한국어 오디오로 정확도/속도 확인~~ | ✅ 구현 — 테스트 4(gTTS 한국어/영어/혼합). 로컬 CPU `small`로 한국어 감지 0.887~0.993 확인(§4.11). T4 재실행 대기 |
 | P2 | partial 비용 벤치 (1초 vs 15초 vs 30초) | `plan/04` §5.1의 15초 상한 vs §4.1의 5~10분 청크 모순을 실측으로 해소 |
 | P3 | 계획 문서 정합성 수정 | `plan/04` §4.1 배치 청크 5~10분 ↔ §5.1 `Transcriber` 15초 상한 / `plan/05` `ev:` TTL 1일 ↔ final 30일 |
 | P3 | 노트북 셀 1의 출력 중복 | `!nvidia-smi`와 stdout 캐시트가 겹쳐 파이썬 `print` 2줄이 두 번 찍힌다. 값은 정상, 표시만 중복. `subprocess.run`으로 바꾸면 사라진다 |
@@ -319,14 +350,15 @@ app/
   main.py        FastAPI 엔드포인트: batch(REST+SSE), streaming(WS), 인증, 오류 envelope
   jobs.py        Job/JobStore(인메모리), BatchRunner 파이프라인
                  preprocessing → transcribing → postprocessing, _fail()이 error 기록
-  engine.py      faster-whisper 래퍼. 모델 지연 로드, _infer_lock으로 추론 직렬화
+  engine.py      faster-whisper 래퍼. 모델 지연 로드, _infer_lock으로 추론 직렬화,
+                 language 미지정 시 multilingual(30초 창별 재감지) + 4창 투표
   audio.py       ffmpeg 변환(to_wav16k: mono/16k/pcm_s16le), PCM→float32, AudioError
   stream.py      스트리밍 세션: 에너지 기반 VAD(512샘플=32ms 프레임), partial은 현재 버퍼를
                  재디코딩하되 새 오디오 700ms마다로 제한(§4.8), 추론은 스레드, final/done/error 발행
   config.py      환경 변수 설정(STT_*), 기본 small / auto device / 상대 data_dir
   preload.py     모델 다운로드·로드 검증 (노트북 셀 4, run.sh --preload)
   formats.py     txt / srt / vtt 직렬화
-notebooks/colab_stt_api.ipynb   14셀(코드 9 + 설명 5), Colab 실행 경로. 테스트 1~3은 각각
+notebooks/colab_stt_api.ipynb   16셀(코드 10 + 설명 6), Colab 실행 경로. 테스트 1~4는 각각
                                 앞에 무엇을 왜 확인하는지 마크다운이 붙어 있다. 출력은 커밋하지 않는
                                 템플릿으로 유지한다(고친 코드와 옛 출력이 섞여 오해를 만들지 않게)
 run.sh                          자체 호스팅 러너
@@ -354,4 +386,5 @@ HANDOFF.md                      이 문서
 | 1차 | 요구사항 정리 → `plan/` 9개 + `plan/review/` 2개, `app/` 9모듈, `requirements.txt`, `run.sh`, Colab 노트북, 이 문서 |
 | 2차 | Colab 실패 원인 추적·수정: PyAV 19(§4.1), 셀 비멱등(§4.2), 가짜 성공(§4.3), 원인 미노출(§4.4), 오류 코드 분리(§4.6), CUDA 13 cuBLAS(§4.7), partial 폭주(§4.8) |
 | 3차 (2026-11-22) | T4 실행 검토 → 옛 클론(`0e3c4ba`) 발견(§4.10) → push → 최신 코드 재검증(`f8fc8a7`, `smoke: ok`, 3테스트 통과, §3.1) → 노트북 출력을 이 문서로 옮기고 템플릿 복원 → 테스트 3 겹침 관찰(§4.9) |
-| 다음 | 동시성 증거 강화(P1), 한국어 오디오 검증(P2), 계획 문서 정합성(P3) |
+| 4차 (2026-11-22) | 언어 자동 감지 보강(창별 재감지, 감지 언어/확률 노출, `STT_MULTILINGUAL`), 테스트 3을 110초 오디오 + 1초 겹침 판정으로 강화, 테스트 4(한국어/영어/혼합) 신설, 로컬 CPU 검증(§4.11). **T4 미검증** |
+| 다음 | Colab 테스트 1~4 재실행(P0), 계획 문서 정합성(P3) |

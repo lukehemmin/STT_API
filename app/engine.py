@@ -124,6 +124,8 @@ class WhisperEngine:
             "device": self._resolved_device or ("auto" if self.device == "auto" else self.device),
             "compute_type": self._resolved_compute or self.compute_type,
             "language": self.language,
+            "language_mode": "fixed" if self.language else "auto",
+            "multilingual": settings.multilingual and not self.language,
         }
 
     # -- 추론 -----------------------------------------------------------
@@ -142,6 +144,7 @@ class WhisperEngine:
         info = None
         with self._infer_lock:
             try:
+                auto_language = not (language or self.language)
                 segments_iter, info = self._model.transcribe(
                     source,
                     language=(language or self.language or None),
@@ -149,6 +152,11 @@ class WhisperEngine:
                     vad_filter=vad_filter,
                     word_timestamps=word_timestamps,
                     condition_on_previous_text=False,
+                    # 언어를 지정하지 않았을 때만: 30초 창마다 언어를 다시 감지해
+                    # 한 파일에서 한국어/영어가 섞여도 구간별로 해당 언어로 디코딩한다.
+                    multilingual=auto_language and settings.multilingual,
+                    # 초기 감지에 최대 4개 창(약 120초)을 투표에 쓴다. 짧은 오디오는 있는 만큼만 쓴다.
+                    language_detection_segments=4 if auto_language else 1,
                 )
                 duration = float(getattr(info, "duration", 0.0) or 0.0)
                 if duration <= 0:

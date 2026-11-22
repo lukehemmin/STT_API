@@ -140,6 +140,7 @@ callback_url=https://client.example.com/hooks/stt
 {
   "id": "tr_01J8Z9K4",
   "language": "ko",
+  "language_probability": 0.97,
   "duration_ms": 3600000,
   "text": "안녕하세요. 오늘 회의는...",
   "segments": [
@@ -208,20 +209,23 @@ data: {"type":"done","seq":3,"duration_ms":3600000,"segments":128}
 
 `WSS /v1/stream?language=ko&encoding=pcm_s16le&sample_rate=16000&channels=1&interim=true&word_timestamps=false`
 
+`language`를 생략하면 자동 감지한다(30초 창마다 재감지, `STT_MULTILINGUAL`).
+
 - 인증: `Authorization` 헤더(브라우저는 `Sec-WebSocket-Protocol: bearer.<token>` 서브프로토콜 사용).
 - 텍스트 프레임 = JSON 제어, 바이너리 프레임 = 오디오.
 
 ### 2.1 서버 → 클라이언트
 
 ```json
-{ "type": "ready", "session_id": "ss_01J8ZA", "max_duration_ms": 7200000, "frame_ms": 100 }
+{ "type": "ready", "session_id": "ss_01J8ZA", "max_duration_ms": 7200000, "frame_ms": 100,
+  "language": null, "language_detection": "auto" }
 ```
 
 부분 결과(교체 가능):
 
 ```json
 { "type": "partial", "seq": 12, "segment_id": "s-3", "revision": 4,
-  "text": "오늘 회의는", "start_ms": 1200, "end_ms": 2800 }
+  "text": "오늘 회의는", "start_ms": 1200, "end_ms": 2800, "language": "ko" }
 ```
 
 확정 결과:
@@ -229,13 +233,13 @@ data: {"type":"done","seq":3,"duration_ms":3600000,"segments":128}
 ```json
 { "type": "final", "seq": 13, "segment_id": "s-3", "revision": 5,
   "text": "오늘 회의는 시작하겠습니다.", "start_ms": 1200, "end_ms": 3400,
-  "confidence": 0.91, "words": [] }
+  "confidence": 0.91, "language": "ko", "language_probability": 0.97, "words": [] }
 ```
 
 종료:
 
 ```json
-{ "type": "done", "seq": 40, "duration_ms": 15230, "segments": 7 }
+{ "type": "done", "seq": 40, "duration_ms": 15230, "segments": 7, "language": "ko" }
 ```
 
 오류/경고:
