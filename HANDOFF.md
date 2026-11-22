@@ -7,7 +7,7 @@
 
 ## 0. 한 줄 상태
 
-배치·스트리밍·Colab·자체 호스팅 경로가 모두 구현되어 있고, **Colab(T4)에서 테스트 1(배치)·2(스트리밍)·3(동시 요청)이 모두 완주했다**(§3.1). 단 그 실행은 **원격에 올라가 있던 `0e3c4ba` 클론**으로 돌아간 것이라, 그 뒤에 만든 수정(`av<19` 고정, cuBLAS 스모크, partial 게이트, 오류 코드 분리)은 **아직 실제 GPU에서 검증되지 않았다**. push 후 재실행이 남은 일이다.
+**최신 코드(`f8fc8a7`)를 T4에서 돌려 테스트 1(배치)·2(스트리밍)·3(동시 요청)이 모두 통과했고, 프리로드 스모크(`smoke: ok`)까지 확인됐다**(§3.1). 남은 약점은 동시성 증거의 폭이 좁다는 것(§4.9)과 한국어 오디오 미검증(P2)이다.
 
 ---
 
@@ -42,37 +42,46 @@
 
 ### 3.1 Colab에서 실제로 검증된 것 (Tesla T4 15360MiB, Driver 580.82.07, CUDA 13.0, Python 3.13.16)
 
-마지막 실행(2026-11-22) 결과. **클론이 `0e3c4ba`였고 이는 원격에 올라간 유일한 커밋**이라, 아래 통과는 모두 **옛 코드 기준**이다.
+최신 실행(2026-11-22, **push 후**). 셀 1~12를 처음부터 다시 돌린 결과다. 실행 카운트 1~9 순차, 실패한 셀 없음.
 
 | 단계 | 결과 |
 |---|---|
-| 클론 | `HEAD: 0e3c4ba` — 최신이 아니라 **초기 커밋**. 아래 ⚠ 참고 |
-| 의존성 | `faster-whisper 1.2.1`, `ctranslate2 4.9.0`, `av 18.1.1` — **Python 3.13 휠 문제 없음** |
+| 클론 | `HEAD: f8fc8a7` — **push한 최신 커밋**. 기존 클론을 `pull --ff-only`로 갱신 |
+| 의존성 | `faster-whisper 1.2.1`, `ctranslate2 4.9.0`, `av 18.1.1` — `av<19` 핀이 실제로 적용됨 |
 | GPU | T4 15360MiB, Driver 580.82.07, CUDA 13.0, `get_cuda_device_count() == 1` |
-| cuBLAS 가드 | 셀 3이 부재를 감지해 `nvidia-cublas-cu12` + `nvidia-cudnn-cu12==9.*` 설치 → 이후 추론 정상 |
+| cuBLAS 가드 | `libcublas.so.12` 부재 감지 → `nvidia-cublas-cu12` + `nvidia-cudnn-cu12==9.*` 설치, `LD_LIBRARY_PATH` 설정 |
 | 모델 로드 | `device: cuda`, `compute_type: float16`, `loaded in 1.4s` |
-| 서버 | `/healthz`, `/v1/info` 정상, `cloudflared` `PUBLIC_URL` 발급 |
-| 테스트 1 (배치) | ✅ 202 → `completed`, `TEXT: And so my fellow Americans, ask not what your country can do for you...` |
-| 테스트 2 (스트리밍) | ✅ `ready` → `partial` 15개 → `final` 1 → `done`(`duration_ms` 11000, `segments` 1) |
-| 테스트 3 (동시) | ✅ 배치 2건 `completed`/`error=None`, 스트림 `partial` 7 + `final` 1 + `done` 1, 6.0s (겹침 0.3s/0.4s — §4.9) |
+| **프리로드 스모크** | ✅ `smoke: ok (0.5s)` — §4.7 수정이 실제 GPU의 첫 추론까지 확인해 줌 |
+| 서버 | `/healthz`, `/v1/info` 정상(`limits`에 `stream_encoding: pcm_s16le`, `stream_sample_rate: 16000`), `PUBLIC_URL` 발급 |
+| 테스트 1 (배치) | ✅ 202 → `preprocessing` → `completed`, TEXT 정확 |
+| 테스트 2 (스트리밍) | ✅ `ready` → `partial` 15개 → `final` 1 → `done`(`duration_ms` 11000, `segments` 1, `seq` 17) |
+| 테스트 3 (동시) | ✅ 배치 2건 `completed`/`error=None`, 스트림 `partial` 8 + `final`/`done`, 6.0s (겹침 0.3s/0.5s — §4.9) |
 
-⚠ **이 실행으로 검증되지 않은 것**: `av<19` 상한(당시 `requirements.txt`에 없었고 결과적으로 av 18.1.1이 설치됨), preload 무음 스모크(출력에 `smoke:` 줄이 없음), partial 샘플 게이트(§4.8), `dependency_missing`/`invalid_audio`/`job_not_ready`(§4.6). 노트북 셀 자체는 최신본이었고(실행 카운트 10~18 순차), **`app/`만 옛 코드**였다.
+→ push 전의 같은 노트북 실행은 `HEAD: 0e3c4ba`(원격에 있던 유일한 커밋)라 옛 `app/`로 돌아갔고 `smoke:` 줄이 없었다. **노트북 셀은 최신인데 클론만 옛것일 수 있다**는 사례다(§7-2).
 
 원본 출력 중 핵심 줄. 노트북은 출력 없는 템플릿으로 유지하므로(§9) 여기에 보존한다.
 
 ```
+smoke: ok (0.5s)
 TEXT: And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.
 [final  ] And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.
 done: {'type': 'done', 'duration_ms': 11000, 'segments': 1, 'seq': 17}
 
-동시 접수한 배치 잡: ['tr_ba6f2073759a', 'tr_085b9df77ba8']
-tr_ba6f2073759a: status=completed progress=1.0 error=None
-tr_085b9df77ba8: status=completed progress=1.0 error=None
-스트림 이벤트: {'ready': 1, 'partial': 7, 'final': 1, 'done': 1, 'error': 0}
-  tr_ba6f2073759a: 배치/스트림 구간 겹침 0.3s
-  tr_085b9df77ba8: 배치/스트림 구간 겹침 0.4s
+동시 접수한 배치 잡: ['tr_51e8c42cdfd4', 'tr_7370966776d0']
+tr_51e8c42cdfd4: status=completed progress=1.0 error=None
+tr_7370966776d0: status=completed progress=1.0 error=None
+스트림 이벤트: {'ready': 1, 'partial': 8, 'final': 1, 'done': 1, 'error': 0}
+  tr_51e8c42cdfd4: 배치/스트림 구간 겹침 0.3s
+  tr_7370966776d0: 배치/스트림 구간 겹침 0.5s
 동시에 돌았던 배치: 2 건
 동시 처리 완료: 배치 2건 + 스트리밍 1세션, 6.0s
+
+(스트림 partial 진행 예시 — 11초 오디오, 100ms 프레임)
+[partial] And so
+[partial] And so my f-
+[partial] And so, my fellow Americans, ask not-
+[partial] And so, my fellow Americans, ask not what your country can do for you.
+[partial] And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.
 ```
 
 ### 3.2 자체 호스팅
@@ -178,7 +187,7 @@ status: failed | error: {'code': 'internal',
 ### 4.9 [관찰] 실제 T4에서의 partial 빈도와 "동시" 겹침 폭
 
 - 테스트 2: 11초 `jfk.wav`를 실시간(100ms)으로 보내 `partial` **15개** ≈ 0.73초당 1개. 700ms 예산이 GPU에서 지켜진다는 뜻이고, T4 `small`은 추론이 700ms보다 빨라 **wall-clock 게이트만으로도 폭주하지 않는다**. §4.8의 폭주는 느린 추론(CPU·큰 모델·긴 버퍼)에서만 재현된다.
-- 테스트 3: 성공했지만 배치/스트림 **겹침이 0.3s / 0.4s**뿐이다. `started_at`은 접수 직후에 찍히는데 T4에서 11초 오디오 추론이 1초 미만이라 배치가 스트림 초반에 끝나 버린다. 사실은 동시지만 **폭이 좁아 동시성 증거로는 약하다**. 현재 판정은 `overlapped == 0`만 경고하므로 이 약한 경우도 통과한다. 더 긴 오디오(60~120초)나 느린 모델로 재확인하거나, 경고 임계를 1초 이상으로 올릴 것.
+- 테스트 3: 성공했지만 배치/스트림 **겹침이 0.3s / 0.5s**뿐이다(이전 실행 0.3/0.4 — 재현성 있는 결과). `started_at`은 접수 직후에 찍히는데 T4에서 11초 오디오 추론이 1초 미만이라 배치가 스트림 초반에 끝나 버린다. 사실은 동시지만 **폭이 좁아 동시성 증거로는 약하다**. 현재 판정은 `overlapped == 0`만 경고하므로 이 약한 경우도 통과한다. 더 긴 오디오(60~120초)나 느린 모델로 재확인하거나, 경고 임계를 1초 이상으로 올릴 것.
 
 
 ---
@@ -199,7 +208,7 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 
 | 순위 | 작업 | 이유 / 완료 조건 |
 |---|---|---|
-| **P0** | **push 후** Colab에서 테스트 1·2·3 재실행 | 테스트 1·2·3은 `0e3c4ba`에서 이미 완주했다(§3.1). 이제 최신 코드에서 §4.6~4.8 수정이 실제 GPU에서도 문제없는지 확인하는 것이 목적 |
+| ~~P0~~ | ~~push 후 Colab에서 테스트 1·2·3 재실행~~ | ✅ 완료 — `f8fc8a7`에서 3개 테스트 + `smoke: ok` 확인 (§3.1) |
 | P1 | 동시성 검증을 더 긴 오디오로 강화 | 겹침이 0.3~0.4초뿐이라 증거가 약하다(§4.9) |
 | ~~P1~~ | ~~`/readyz` ffmpeg 검사 · `dependency_missing` 분리 · 409 `job_not_ready`~~ | ✅ 완료 (§4.6) |
 | P2 | 한국어 오디오로 정확도/속도 확인 | 지금까지 데모는 영어 `jfk.wav`뿐. `small` 유지 여부 판단 근거 |
@@ -211,7 +220,7 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 ## 7. 알려진 함정 (다음 에이전트가 밟기 쉬운 것)
 
 1. **셀 3만 다시 돌리고 셀 5를 건너뛰면 무효다.** 실행 중인 서버 프로세스가 옛 `av`를 이미 import했으므로, 의존성을 바꾼 뒤에는 반드시 서버를 재기동해야 한다(이제 셀 5가 알아서 이전 프로세스를 종료한다).
-2. **Colab 노트북은 저장소 수정이 자동 반영되지 않는다.** 사용자가 직접 올린 사본이거나, GitHub에서 새로 열어야 최신본이 적용된다. 실제로 마지막 GPU 실행도 노트북은 최신, `app/`은 `HEAD: 0e3c4ba` 옛 클론이라 **전부 통과했지만 최신 수정은 검증되지 않았다**. 셀 2가 찍는 `HEAD:`를 최신 커밋과 비교할 것.
+2. **Colab 노트북은 저장소 수정이 자동 반영되지 않는다.** 사용자가 직접 올린 사본이거나, GitHub에서 새로 열어야 최신본이 적용된다. 실제로 push 전 실행은 노트북은 최신, `app/`은 `HEAD: 0e3c4ba` 옛 클론이라 **전부 통과했지만 최신 수정은 검증되지 않았다**. 셀 2가 찍는 `HEAD:`를 최신 커밋과 비교할 것.
 3. **추론은 직렬화되어 있다.** `app/engine.py`의 `_infer_lock` 때문에 배치 2건 + 스트림 1건이 동시에 접수되어도 추론은 하나씩 돈다. "동시 접수·격리"는 되지만 "동시 추론"은 아니다. 이걸 개선하려면 `plan/02`의 워커 풀 설계가 필요하고 GPU 메모리 계산이 선행되어야 한다.
 4. **잡 상태는 인메모리다.** 서버를 재시작하면 이전 `job_id`는 404가 된다. 오래된 `job_id`로 결과를 조회하면 "실패"가 아니라 404가 나온다.
 5. **`data_dir`는 상대경로(`data`)다.** uvicorn의 cwd가 바뀌면 업로드/작업 경로도 따라 바뀐다. 자체 호스팅에서 systemd 등으로 띄울 때 주의.
