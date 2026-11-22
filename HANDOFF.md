@@ -7,7 +7,7 @@
 
 ## 0. 한 줄 상태
 
-**최신 코드(`f8fc8a7`)를 T4에서 돌려 테스트 1(배치)·2(스트리밍)·3(동시 요청)이 모두 통과했고, 프리로드 스모크(`smoke: ok`)까지 확인됐다**(§3.1). 남은 약점은 동시성 증거의 폭이 좁다는 것(§4.9)과 한국어 오디오 미검증(P2)이다.
+**최신 코드(검증 시점 `f8fc8a7`)를 T4에서 돌려 테스트 1(배치)·2(스트리밍)·3(동시 요청)이 모두 통과했고, 프리로드 스모크(`smoke: ok`)까지 확인됐다**(§3.1). 남은 약점은 동시성 증거의 폭이 좁다는 것(§4.9)과 한국어 오디오 미검증(P2)이다.
 
 ---
 
@@ -42,7 +42,7 @@
 
 ### 3.1 Colab에서 실제로 검증된 것 (Tesla T4 15360MiB, Driver 580.82.07, CUDA 13.0, Python 3.13.16)
 
-최신 실행(2026-11-22, **push 후**). 셀 1~12를 처음부터 다시 돌린 결과다. 실행 카운트 1~9 순차, 실패한 셀 없음.
+최신 실행(2026-11-22, **push 후**, 검증 커밋 `f8fc8a7`). 셀 1~12를 처음부터 다시 돌린 결과다. 실행 카운트 1~9 순차, 실패한 셀 없음.
 
 | 단계 | 결과 |
 |---|---|
@@ -189,18 +189,33 @@ status: failed | error: {'code': 'internal',
 - 테스트 2: 11초 `jfk.wav`를 실시간(100ms)으로 보내 `partial` **15개** ≈ 0.73초당 1개. 700ms 예산이 GPU에서 지켜진다는 뜻이고, T4 `small`은 추론이 700ms보다 빨라 **wall-clock 게이트만으로도 폭주하지 않는다**. §4.8의 폭주는 느린 추론(CPU·큰 모델·긴 버퍼)에서만 재현된다.
 - 테스트 3: 성공했지만 배치/스트림 **겹침이 0.3s / 0.5s**뿐이다(이전 실행 0.3/0.4 — 재현성 있는 결과). `started_at`은 접수 직후에 찍히는데 T4에서 11초 오디오 추론이 1초 미만이라 배치가 스트림 초반에 끝나 버린다. 사실은 동시지만 **폭이 좁아 동시성 증거로는 약하다**. 현재 판정은 `overlapped == 0`만 경고하므로 이 약한 경우도 통과한다. 더 긴 오디오(60~120초)나 느린 모델로 재확인하거나, 경고 임계를 1초 이상으로 올릴 것.
 
+### 4.10 [해결] Colab이 옛 코드로 "전부 통과"를 보여주던 문제 — push 누락
+
+증상: 노트북 3개 테스트가 모두 성공했는데 셀 2는 `HEAD: 0e3c4ba`(원격에 있던 유일한 커밋)였고 셀 4에 `smoke:` 줄이 없었다. **노트북 셀은 최신, `app/`은 9커밋 전 코드**라 `av<19` 핀·cuBLAS 스모크·partial 게이트·오류 코드 분리는 검증되지 않은 채 통과로 보였다.
+
+원인: 로컬 커밋이 push되지 않았고, 이 문서가 "푸시 권한/자격증명이 없어 push 불가"라고 단정하고 있었다. 실제로는 자격증명이 있었다.
+
+조치: `0e3c4ba..f8fc8a7` push → Colab에서 셀 2~12 재실행 → `HEAD: f8fc8a7`, `smoke: ok (0.5s)`, 3개 테스트 통과(§3.1). 검증 후 노트북 출력은 이 문서로 옮기고 파일은 출력 없는 템플릿으로 되돌렸다.
+
+교훈: **"테스트 통과"를 믿기 전에 셀 2의 `HEAD:`가 검증하려는 커밋인지 먼저 확인한다.**
+
 
 ---
 
-## 5. 커밋 상태 — **push는 사용자가 직접 한다**
+## 5. 커밋·푸시 상태
 
-`origin/main`에는 초기 프로토타입 커밋(`0e3c4ba`)만 있다. 그 위로 로컬 커밋이 여러 개 쌓여 있으니, 정확한 앞선 개수는 아래로 확인한다.
+`origin/main`은 **로컬 `main`과 동기화되어 있다** — 초기 커밋 `0e3c4ba` 위로 쌓여 있던 9개 커밋과 그 뒤의 검증 기록 커밋을 2026-11-22에 push했다(§4.10).
+
+- **이 환경에서 push가 가능하다.** credential helper에 유효한 자격증명이 설정돼 있어 `git push --dry-run`이 성공하고, 실제 push도 `0e3c4ba..f8fc8a7` fast-forward로 통과했다. 다만 push는 외부에 영향을 주는 작업이므로 **사용자 승인을 받고** 실행할 것. "자격증명이 없어 push 불가"는 이전 판의 잘못된 단정이었다.
+- 커밋 footer는 `🤖 Generated with Codebuff` + `Co-Authored-By: Codebuff <noreply@codebuff.com>` 형식 유지. git 작성자는 저장소 로컬 설정만 사용(전역 미변경).
+- 상태 확인:
 
 ```bash
-git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오른쪽=로컬만
+git rev-list --left-right --count origin/main...HEAD   # 0 0 이면 동기화됨
+git ls-remote origin refs/heads/main
 ```
 
-**푸시 권한/자격증명이 없어 대신 push하지 않았다.** 커밋 footer는 `🤖 Generated with Codebuff` + `Co-Authored-By: Codebuff <noreply@codebuff.com>` 형식을 유지할 것. git 작성자는 저장소 로컬 설정만 사용했다(전역 미변경).
+- **Colab은 GitHub에서 클론한다.** push하지 않은 커밋은 아무리 로컬에서 잘 돌아도 Colab에 도달하지 않는다(§4.10, §7-2).
 
 ---
 
@@ -214,6 +229,7 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 | P2 | 한국어 오디오로 정확도/속도 확인 | 지금까지 데모는 영어 `jfk.wav`뿐. `small` 유지 여부 판단 근거 |
 | P2 | partial 비용 벤치 (1초 vs 15초 vs 30초) | `plan/04` §5.1의 15초 상한 vs §4.1의 5~10분 청크 모순을 실측으로 해소 |
 | P3 | 계획 문서 정합성 수정 | `plan/04` §4.1 배치 청크 5~10분 ↔ §5.1 `Transcriber` 15초 상한 / `plan/05` `ev:` TTL 1일 ↔ final 30일 |
+| P3 | 노트북 셀 1의 출력 중복 | `!nvidia-smi`와 stdout 캐시트가 겹쳐 파이썬 `print` 2줄이 두 번 찍힌다. 값은 정상, 표시만 중복. `subprocess.run`으로 바꾸면 사라진다 |
 
 ---
 
@@ -227,7 +243,22 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 6. **`requirements.txt`에 `requests`/`websockets`가 없다.** 노트북 셀 5·7이 쓰지만 Colab에는 기본 설치되어 있어 통과한다. 서버 런타임에는 필요 없다(uvicorn[standard]가 websockets 포함).
 7. **`STT_API_KEY`가 없으면 인증이 꺼진 채로 뜬다.** cloudflared 공개 URL과 조합하면 누구나 쓸 수 있는 서버가 된다. 외부 노출 시 반드시 설정할 것.
 8. **인증은 `?api_key=` 쿼리도 허용한다** (`app/main.py`). 로그에 키가 남을 수 있다.
-9. **GPU 호스트에는 CUDA 12용 cuBLAS/cuDNN이 필요하다.** ctranslate2 4.9 기준이다. CUDA 13만 있는 환경에서는 `pip install nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'` + `LD_LIBRARY_PATH` 없이는 첫 추론이 실패한다. `python -m app.preload`(또는 `run.sh --preload`)가 이걸 조기에 잡는다.
+9. **노트북을 실행하면 출력이 파일에 쌓인다.** 이 저장소는 출력 없는 템플릿을 유지하므로(§9), 커밋 전에 반드시 비울 것. 실측값은 이 문서 §3.1처럼 옮겨 둔다.
+
+   ```bash
+   python3 - <<'PY'
+   import json
+   p = 'notebooks/colab_stt_api.ipynb'
+   nb = json.load(open(p, encoding='utf-8'))
+   for c in nb['cells']:
+       if c['cell_type'] == 'code':
+           c['outputs'] = []
+           c['execution_count'] = None
+   open(p, 'w', encoding='utf-8').write(
+       json.dumps(nb, indent=1, ensure_ascii=False, sort_keys=True) + '\n')
+   PY
+   ```
+10. **GPU 호스트에는 CUDA 12용 cuBLAS/cuDNN이 필요하다.** ctranslate2 4.9 기준이다. CUDA 13만 있는 환경에서는 `pip install nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'` + `LD_LIBRARY_PATH` 없이는 첫 추론이 실패한다. `python -m app.preload`(또는 `run.sh --preload`)가 이걸 조기에 잡는다.
 
 ---
 
@@ -313,3 +344,14 @@ HANDOFF.md                      이 문서
 - `plan/04` §4.1 배치 청크 5~10분 ↔ §5.1 `Transcriber` 15초 상한
 - `plan/05` `ev:` 이벤트 TTL 1일 ↔ final 결과 30일
 - 리뷰 문서(22건 불일치)의 지적 중 상당수는 코드가 아니라 계획 문서 쪽 문제다. 코드를 고치기 전에 문서를 먼저 확정할지 판단할 것.
+
+---
+
+## 11. 세션 이력 (무엇을 왜 했는지)
+
+| 시점 | 한 일 |
+|---|---|
+| 1차 | 요구사항 정리 → `plan/` 9개 + `plan/review/` 2개, `app/` 9모듈, `requirements.txt`, `run.sh`, Colab 노트북, 이 문서 |
+| 2차 | Colab 실패 원인 추적·수정: PyAV 19(§4.1), 셀 비멱등(§4.2), 가짜 성공(§4.3), 원인 미노출(§4.4), 오류 코드 분리(§4.6), CUDA 13 cuBLAS(§4.7), partial 폭주(§4.8) |
+| 3차 (2026-11-22) | T4 실행 검토 → 옛 클론(`0e3c4ba`) 발견(§4.10) → push → 최신 코드 재검증(`f8fc8a7`, `smoke: ok`, 3테스트 통과, §3.1) → 노트북 출력을 이 문서로 옮기고 템플릿 복원 → 테스트 3 겹침 관찰(§4.9) |
+| 다음 | 동시성 증거 강화(P1), 한국어 오디오 검증(P2), 계획 문서 정합성(P3) |
