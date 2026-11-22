@@ -86,6 +86,7 @@ class StreamingSession:
         self._segment_index = 0
         self._revision = 0
         self._last_partial_at = 0.0
+        self._last_partial_samples = 0
 
     # -- 상태 -----------------------------------------------------------
     @property
@@ -179,7 +180,14 @@ class StreamingSession:
         now = time.monotonic()
         if (now - self._last_partial_at) * 1000 < self.partial_interval_ms:
             return None
+        # wall-clock 조건만 보면, 추론 한 번이 간격보다 느릴 때(CPU·큰 모델) 매 블록마다
+        # 전체 버퍼를 다시 전사해 partial이 폭주한다. 마지막 partial 이후 새로 쌓인
+        # 오디오가 간격만큼 있어야 다시 계산한다.
+        step_samples = int(SAMPLE_RATE * self.partial_interval_ms / 1000)
+        if self._buffer_samples - self._last_partial_samples < step_samples:
+            return None
         self._last_partial_at = now
+        self._last_partial_samples = self._buffer_samples
         audio = np.concatenate(self._buffer)
         result = await asyncio.to_thread(
             self.engine.transcribe_audio, audio, self.language, False
@@ -249,6 +257,7 @@ class StreamingSession:
         self._speech = False
         self._silence_ms = 0
         self._revision = 0
+        self._last_partial_samples = 0
         if not buffer_only:
             self._preroll = np.zeros(0, dtype=np.float32)
 

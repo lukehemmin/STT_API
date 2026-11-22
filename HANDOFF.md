@@ -137,6 +137,24 @@ status: failed | error: {'code': 'internal',
 - 노트북 셀 3: `ctypes.CDLL`로 `libcublas.so.12`/`libcudnn.so.9` 존재를 확인하고, 없으면 pip 휠을 설치한 뒤 해당 lib 디렉터리를 `LD_LIBRARY_PATH`에 넣는다. 프리로드/서버 서브프로세스는 `os.environ`을 물려받으므로 적용된다(ipykernel 자신에는 소용없음).
 - 셀 4·6 힌트: "셀 3 재실행 → **셀 5 재기동**"으로 수정. 셀 3만 다시 실행하면 이미 뜬 서버는 옛 환경 그대로다.
 
+### 4.8 [해결] 추론이 느릴 때 partial이 폭주하던 문제
+
+테스트 3(동시 요청)을 **스텁 엔진 + 실제 서버**로 돌려 보고 발견했다. 8초 오디오에 `partial` 이벤트가 241개, 총 293초가 걸렸다.
+
+원인: `_maybe_partial` 이 **wall-clock 간격(700ms)만** 확인했다. 추론 한 번이 700ms보다 오래 걸리면(CPU, 큰 모델, 긴 버퍼) 다음 32ms 블록에서 조건이 이미 참이라 **매 블록마다 전체 버퍼를 다시 전사**한다. partial 비용은 오디오 길이에 비례하므로 시간이 갈수록 더 느려진다.
+
+수정: 마지막 partial 이후 **새로 쌓인 오디오가 `partial_interval_ms`(700ms) 이상일 때만** 재계산한다(`_last_partial_samples`). 같은 조건 재실행 결과:
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| `partial` 개수(8초 오디오) | 241 | 11 |
+| 총 소요 | 293.2s | 16.8s |
+| 배치 2건 | completed | completed |
+| 배치/스트림 구간 겹침 | 1.1s / 2.4s | 1.1s / 2.4s |
+
+첫 partial 시점은 오디오 300ms → 700ms로 조금 늦어지지만, 폭주와 비용 증가가 사라진다.
+
+
 ---
 
 ## 5. 커밋 상태 — **push는 사용자가 직접 한다**
@@ -239,7 +257,7 @@ app/
   engine.py      faster-whisper 래퍼. 모델 지연 로드, _infer_lock으로 추론 직렬화
   audio.py       ffmpeg 변환(to_wav16k: mono/16k/pcm_s16le), PCM→float32, AudioError
   stream.py      스트리밍 세션: 에너지 기반 VAD(512샘플=32ms 프레임), partial은 현재 버퍼를
-                 주기적으로 재디코딩, 모델 추론은 스레드에서 실행, final/done/error 이벤트 발행
+                 재디코딩하되 새 오디오 700ms마다로 제한(§4.8), 추론은 스레드, final/done/error 발행
   config.py      환경 변수 설정(STT_*), 기본 small / auto device / 상대 data_dir
   preload.py     모델 다운로드·로드 검증 (노트북 셀 4, run.sh --preload)
   formats.py     txt / srt / vtt 직렬화
