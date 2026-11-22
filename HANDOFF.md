@@ -203,10 +203,13 @@ app/
                  preprocessing → transcribing → postprocessing, _fail()이 error 기록
   engine.py      faster-whisper 래퍼. 모델 지연 로드, _infer_lock으로 추론 직렬화
   audio.py       ffmpeg 변환(to_wav16k: mono/16k/pcm_s16le), PCM→float32, AudioError
+  stream.py      스트리밍 세션: 에너지 기반 VAD(512샘플=32ms 프레임), partial은 현재 버퍼를
+                 주기적으로 재디코딩, 모델 추론은 스레드에서 실행, final/done/error 이벤트 발행
   config.py      환경 변수 설정(STT_*), 기본 small / auto device / 상대 data_dir
   preload.py     모델 다운로드·로드 검증 (노트북 셀 4, run.sh --preload)
   formats.py     txt / srt / vtt 직렬화
-notebooks/colab_stt_api.ipynb   10셀, Colab 실행 경로
+notebooks/colab_stt_api.ipynb   10셀, Colab 실행 경로 (출력은 커밋하지 않는 템플릿으로 유지한다.
+                                고친 코드와 옛 출력이 섞여 오해를 만들지 않게 하기 위함)
 run.sh                          자체 호스팅 러너
 requirements.txt                ⚠ av>=11,<19 고정 이유 주석 참고
 plan/                           계획 문서 9개 + review/ 2개
