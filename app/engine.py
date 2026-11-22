@@ -134,6 +134,7 @@ class WhisperEngine:
         word_timestamps: bool,
         on_progress: Optional[ProgressFn],
         fallback_duration_s: float,
+        vad_filter: bool = True,
     ) -> Transcript:
         self.load()
         started = time.perf_counter()
@@ -145,7 +146,7 @@ class WhisperEngine:
                     source,
                     language=(language or self.language or None),
                     beam_size=5,
-                    vad_filter=True,
+                    vad_filter=vad_filter,
                     word_timestamps=word_timestamps,
                     condition_on_previous_text=False,
                 )
@@ -215,10 +216,14 @@ class WhisperEngine:
         language: Optional[str] = None,
         word_timestamps: bool = False,
         on_progress: Optional[ProgressFn] = None,
+        vad_filter: bool = True,
     ) -> Transcript:
+        """vad_filter=False는 무음에서도 인코더를 태우므로 의존성 점검(프리로드)에 쓴다."""
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         duration = audio.size / SAMPLE_RATE
-        return self._transcribe(audio, language, word_timestamps, on_progress, duration)
+        return self._transcribe(
+            audio, language, word_timestamps, on_progress, duration, vad_filter=vad_filter
+        )
 
 
 engine = WhisperEngine()

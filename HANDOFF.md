@@ -7,7 +7,7 @@
 
 ## 0. 한 줄 상태
 
-배치·스트리밍·Colab·자체 호스팅 경로가 모두 구현되어 있고, **Colab(T4)에서 모델 로드까지는 실제로 성공**했다. 마지막 남은 미검증 구간은 **배치 1건 완주와 스트리밍 1세션 완주**다. 마지막 실패 원인이던 PyAV 19 충돌은 수정·실측 검증했으나, Colab에서 재실행해 완주를 확인하지는 않았다.
+배치·스트리밍·Colab·자체 호스팅 경로가 모두 구현되어 있고, **Colab(T4)에서 모델 로드까지는 실제로 성공**했다. 마지막 남은 미검증 구간은 **배치 1건 완주와 스트리밍 1세션 완주**다. 마지막 실패 원인이던 PyAV 19 충돌은 수정·실측 검증했으나, Colab에서 재실행해 완주를 확인하지는 않았다. 재실행에서 **CUDA 12 cuBLAS 부재**로 한 번 더 막혔고 이 역시 해결했다(§4.7).
 
 ---
 
@@ -50,7 +50,7 @@
 | 모델 로드 | `device: cuda`, `compute_type: float16`, `loaded in 1.4s` — **cuBLAS/cuDNN 정상** |
 | 서버 | `/healthz`, `/v1/info` 정상, `cloudflared` 터널 공개 URL 생성 |
 | 배치 잡 생성 | `POST /v1/transcriptions` → 202, job 생성 |
-| 배치 전사 | **실패** (원인은 §4의 PyAV 19. 수정 완료, Colab 재검증은 미실시) |
+| 배치 전사 | **실패 2건** — ① PyAV 19 (§4.1) ② CUDA 12용 cuBLAS 없음 (§4.7). 둘 다 수정, Colab 재검증은 미실시 |
 | 스트리밍 | **미검증** (셀 7 미실행) |
 
 ### 3.2 자체 호스팅
@@ -119,6 +119,23 @@ av 19.0.2: TypeError: open() got an unexpected keyword argument 'metadata_errors
 
 검증(로컬, fastapi TestClient): ffmpeg 있는 PATH → `/readyz` 200 · 없는 PATH → 503 `dependency_missing` + 배치 생성 503 · 미완료 결과 → 409 `job_not_ready` + `Retry-After: 2` · `DependencyError` 발생 잡 → `failed` + `dependency_missing`(retryable).
 
+### 4.7 [해결] Colab CUDA 13 환경에서 첫 추론이 `libcublas.so.12` 로 실패
+
+두 번째 Colab 실행(PyAV 수정 이후)에서 모델 로드와 프리로드는 성공하는데 첫 배치만 실패:
+
+```
+status: failed | error: {'code': 'internal',
+  'message': 'RuntimeError: Library libcublas.so.12 is not found or cannot be loaded'}
+```
+
+원인: ctranslate2 4.9는 **CUDA 12용** cuBLAS/cuDNN을 쓰고, 로드 시점이 아니라 **첫 `encode`에서 지연 로드**한다. Colab 이미지 Driver 580 / CUDA 13.0에는 `libcublas.so.12`가 없어서 모델 로드는 통과하고 첫 추론만 죽는다. GPU가 잡혀 있고 `compute_type: float16` 로드까지 성공하므로 환경 문제로 보이기 어렵다.
+
+수정:
+- `app/preload.py`: 모델 로드 후 **무음 1초 추론**(`vad_filter=False`)을 수행한다. 이제 `run.sh --preload`와 노트북 셀 4가 이 문제를 기동 전에 잡고 `pip install nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'` + `LD_LIBRARY_PATH` 안내를 출력한다.
+- `app/engine.py`: `transcribe_audio(..., vad_filter=)` 추가. VAD가 무음을 걸러 버리면 인코더를 안 태우므로 점검용으로는 꺼야 한다.
+- 노트북 셀 3: `ctypes.CDLL`로 `libcublas.so.12`/`libcudnn.so.9` 존재를 확인하고, 없으면 pip 휠을 설치한 뒤 해당 lib 디렉터리를 `LD_LIBRARY_PATH`에 넣는다. 프리로드/서버 서브프로세스는 `os.environ`을 물려받으므로 적용된다(ipykernel 자신에는 소용없음).
+- 셀 4·6 힌트: "셀 3 재실행 → **셀 5 재기동**"으로 수정. 셀 3만 다시 실행하면 이미 뜬 서버는 옛 환경 그대로다.
+
 ---
 
 ## 5. 커밋 상태 — **push는 사용자가 직접 한다**
@@ -156,6 +173,7 @@ git rev-list --left-right --count origin/main...HEAD   # 왼쪽=원격만, 오�
 6. **`requirements.txt`에 `requests`/`websockets`가 없다.** 노트북 셀 5·7이 쓰지만 Colab에는 기본 설치되어 있어 통과한다. 서버 런타임에는 필요 없다(uvicorn[standard]가 websockets 포함).
 7. **`STT_API_KEY`가 없으면 인증이 꺼진 채로 뜬다.** cloudflared 공개 URL과 조합하면 누구나 쓸 수 있는 서버가 된다. 외부 노출 시 반드시 설정할 것.
 8. **인증은 `?api_key=` 쿼리도 허용한다** (`app/main.py`). 로그에 키가 남을 수 있다.
+9. **GPU 호스트에는 CUDA 12용 cuBLAS/cuDNN이 필요하다.** ctranslate2 4.9 기준이다. CUDA 13만 있는 환경에서는 `pip install nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'` + `LD_LIBRARY_PATH` 없이는 첫 추론이 실패한다. `python -m app.preload`(또는 `run.sh --preload`)가 이걸 조기에 잡는다.
 
 ---
 
