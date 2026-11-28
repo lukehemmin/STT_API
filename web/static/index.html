@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang='ko'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>STT 웹 테스트</title>
+<link rel='stylesheet' href='style.css'>
+</head>
+<body>
+<main>
+  <header>
+    <h1>STT 웹 테스트</h1>
+    <p class='sub'>오디오·영상 파일을 올려 텍스트로 변환합니다. 이 페이지는 API 서버와 별개 포트/주소로 동작합니다.</p>
+  </header>
+
+  <section class='card'>
+    <h2>1. API 연결</h2>
+    <label>API 주소
+      <input id='apiUrl' type='url' placeholder='http://localhost:8000 또는 https://xxxx.trycloudflare.com' autocomplete='off'>
+    </label>
+    <label>API 키 <span class='hint'>(서버에 STT_API_KEY를 설정한 경우에만)</span>
+      <input id='apiKey' type='password' autocomplete='off'>
+    </label>
+    <div class='row'>
+      <button id='btnCheck' type='button'>연결 확인</button>
+      <span id='health' class='badge'>확인 전</span>
+    </div>
+    <p id='engineInfo' class='hint'></p>
+  </section>
+
+  <section class='card'>
+    <h2>2. 파일 변환</h2>
+    <div id='dropzone' tabindex='0'>
+      <input id='fileInput' type='file' accept='audio/*,video/*,.m4a,.mp3,.wav,.flac,.ogg,.mp4,.mkv,.webm' hidden>
+      <p><strong>파일을 끌어다 놓거나 클릭해서 선택</strong></p>
+      <p id='fileInfo' class='hint'>선택된 파일 없음</p>
+    </div>
+    <div class='row'>
+      <label>언어
+        <select id='language'>
+          <option value=''>자동 감지</option>
+          <option value='ko'>한국어 (ko)</option>
+          <option value='en'>영어 (en)</option>
+          <option value='ja'>일본어 (ja)</option>
+          <option value='zh'>중국어 (zh)</option>
+        </select>
+      </label>
+      <label>타임스탬프
+        <select id='timestamps'>
+          <option value='segment'>문장 단위</option>
+          <option value='word'>단어 단위</option>
+        </select>
+      </label>
+    </div>
+    <div class='row'>
+      <button id='btnStart' type='button' disabled>변환 시작</button>
+      <button id='btnCancel' type='button' class='secondary' hidden>취소</button>
+    </div>
+    <div id='progressWrap' hidden>
+      <div class='progress'><div id='bar'></div></div>
+      <p id='statusText' class='hint'></p>
+    </div>
+    <p id='errorBox' class='error' hidden></p>
+  </section>
+
+  <section class='card' id='resultSection' hidden>
+    <h2>3. 결과</h2>
+    <p id='meta' class='hint'></p>
+    <div class='row tabs' id='tabs'>
+      <button type='button' data-fmt='txt' class='active'>텍스트</button>
+      <button type='button' data-fmt='srt'>SRT</button>
+      <button type='button' data-fmt='vtt'>VTT</button>
+      <button type='button' data-fmt='json'>JSON</button>
+    </div>
+    <pre id='output'></pre>
+    <div class='row'>
+      <button id='btnCopy' type='button' class='secondary'>복사</button>
+      <button id='btnDownload' type='button' class='secondary'>다운로드</button>
+    </div>
+  </section>
+</main>
+<script src='config.js'></script>
+<script src='app.js'></script>
+</body>
+</html>

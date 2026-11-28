@@ -1,0 +1,28 @@
+:root{--bg:#f5f6f8;--card:#fff;--fg:#1c1f24;--muted:#6b7280;--line:#d9dde3;--accent:#2563eb;--accent-fg:#fff;--err:#b42318;--ok:#067647}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--fg:#e6e8ec;--muted:#98a2b3;--line:#2a2f3a;--accent:#4f8cff;--accent-fg:#0b1020;--err:#f97066;--ok:#47cd89}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,'Noto Sans KR','Malgun Gothic',sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+h1{margin:0 0 4px;font-size:1.6rem}
+h2{margin:0 0 12px;font-size:1.05rem}
+.sub,.hint{color:var(--muted);font-size:.9rem;margin:4px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px}
+label{display:block;margin:10px 0;font-size:.9rem}
+input[type=url],input[type=password],select{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+.row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}
+.row label{flex:1;min-width:160px;margin:0}
+button{padding:9px 16px;border:0;border-radius:8px;background:var(--accent);color:var(--accent-fg);font:inherit;font-weight:600;cursor:pointer}
+button.secondary,.tabs button{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.tabs button.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+[hidden]{display:none!important}
+.badge{padding:3px 10px;border-radius:999px;border:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.bad{color:var(--err);border-color:var(--err)}
+#dropzone{border:2px dashed var(--line);border-radius:10px;padding:28px 12px;text-align:center;cursor:pointer}
+#dropzone.over,#dropzone:focus{border-color:var(--accent);outline:0}
+#dropzone p{margin:2px 0}
+.progress{height:8px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:14px}
+#bar{height:100%;width:0;background:var(--accent);transition:width .3s}
+.error{color:var(--err);white-space:pre-wrap;margin:12px 0 0}
+pre{margin:10px 0;padding:12px;max-height:420px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;white-space:pre-wrap;word-break:break-word;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}

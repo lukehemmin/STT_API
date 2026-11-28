@@ -18,6 +18,15 @@ CPU만 있으면 `./run.sh --cpu --model base`. 옵션은 `./run.sh --help`.
 [`notebooks/colab_stt_api.ipynb`](notebooks/colab_stt_api.ipynb)를 GPU 런타임에서 열고 위에서부터 실행한다.
 저장소 클론 → 의존성 설치 → 모델 프리로드 → 서버 + 임시 터널 → 배치/스트리밍 데모까지 한 번에 진행된다.
 
+### 웹 테스트 UI
+
+파일을 올려 변환해 보는 웹 페이지가 [`web/`](web/README.md)에 있다. API(8000)와 **별개 포트(8080)** 로 실행하며, Colab에서는 API 링크와 웹 링크가 따로 발급된다.
+
+```bash
+./run.sh --model small --preload       # API  http://localhost:8000
+web/run.sh --api http://localhost:8000  # 웹  http://localhost:8080
+```
+
 ## API 요약
 
 | 모드 | 엔드포인트 | 결과 |
